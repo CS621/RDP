@@ -15,7 +15,7 @@ jobs:
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Restart-Service -Name TermService -Force
 
-          - name: Create RDP User
+      - name: Create RDP User
         run: |
           $password = "Pass@" + (-join ((48..57) + (65..90) + (97..122) | Get-Random -Count 10 | % {[char]$_}))
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
