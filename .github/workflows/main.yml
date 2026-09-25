@@ -17,7 +17,7 @@ jobs:
 
       - name: Create RDP User
         run: |
-          $password = "Pass@" + (-join ((48..57) + (65..90) + (97..122) | Get-Random -Count 10 | % {[char]$_}))
+          $password = "Pass@1" + (-join ((48..57) + (65..90) + (97..122) | Get-Random -Count 10 | % {[char]$_}))
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
