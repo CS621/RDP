@@ -1,55 +1,67 @@
-name: RDP
+name: Windows RDP with System Specs
 
 on:
   workflow_dispatch:
 
 jobs:
-  rdp-job:
+  build:
     runs-on: windows-latest
-    timeout-minutes: 360
 
     steps:
-      - name: Enable RDP
-        run: |
-          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-          Restart-Service -Name TermService -Force
+    - name: Enable Remote Desktop
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
 
-      - name: Create RDP User
-        run: |
-          $password = "Pass@" + (-join ((48..57) + (65..90) + (97..122) | Get-Random -Count 10 | % {[char]$_}))
-          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
-          echo "RDP_USER=RDP" >> $env:GITHUB_ENV
-          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
+    - name: Create RDP User
+      run: |
+        net user RunnerAdmin "P@ssword1234!" /add
+        net localgroup administrators RunnerAdmin /add
 
-      - name: Install Tailscale
-        run: |
-          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
-          $out = "$env:TEMP\tailscale.msi"
-          Invoke-WebRequest -Uri $url -OutFile $out
-          Start-Process msiexec.exe -ArgumentList "/i $out /quiet /norestart" -Wait
+    - name: Fetch and Display System Specifications
+      run: |
+        Write-Host "==================================================" -ForegroundColor Cyan
+        Write-Host "            SYSTEM SPECIFICATIONS                 " -ForegroundColor Yellow
+        Write-Host "==================================================" -ForegroundColor Cyan
+        
+        # CPU Details
+        $cpu = Get-CimInstance Win32_Processor
+        $cores = $cpu.NumberOfCores
+        $threads = $cpu.NumberOfLogicalProcessors
+        Write-Host " [CPU]       : $($cpu.Name) ($cores Cores, $threads Threads)" -ForegroundColor Green
+        
+        # RAM Details
+        $ram = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
+        Write-Host " [RAM]       : $ram GB" -ForegroundColor Green
+        
+        # Disk Details (Type, Size, Free Space)
+        $disks = Get-PhysicalDisk
+        $diskInfo = Get-Volume -DriveLetter C
+        $freeSpace = [math]::Round($diskInfo.SizeRemaining / 1GB, 2)
+        $totalSize = [math]::Round($diskInfo.Size / 1GB, 2)
+        $mediaType = $disks[0].MediaType
+        $busType = $disks[0].BusType
+        
+        Write-Host " [STORAGE]   : $totalSize GB ($mediaType / $busType) | Free: $freeSpace GB" -ForegroundColor Green
+        
+        # OS Version
+        $os = (Get-CimInstance Win32_OperatingSystem).Caption
+        Write-Host " [OS]        : $os" -ForegroundColor Green
+        Write-Host "==================================================" -ForegroundColor Cyan
 
-      - name: Connect Tailscale
-        run: |
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-${{ github.run_id }}
-          $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
-          echo "TS_IP=$ip" >> $env:GITHUB_ENV
+    - name: Setup Ngrok for RDP Access
+      run: |
+        Invoke-WebRequest -Uri "https://bin.equinox.io/c/b4Pvu3rwcdy/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
+        Expand-Archive -Path "ngrok.zip" -DestinationPath "."
+        # Aapka Ngrok Authtoken yahan daalein ya GitHub Secrets use karein
+        .\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+        Start-Process -FilePath ".\ngrok.exe" -ArgumentList "tcp 3389"
 
-      - name: Show Connection Info
-        run: |
-          Write-Host "`n============================"
-          Write-Host "✅ RDP Connected Successfully"
-          Write-Host "IP Address (Tailscale): $env:TS_IP"
-          Write-Host "Username: $env:RDP_USER"
-          Write-Host "Password: $env:RDP_PASS"
-          Write-Host "============================`n"
-
-      - name: Keep Alive
-        run: |
-          while ($true) {
-            Write-Host "[$(Get-Date)] RDP Running..."
-            Start-Sleep -Seconds 300
-          }
+    - name: Keep RDP Alive
+      run: |
+        $i = 1
+        while ($i -le 360) {
+            Start-Sleep -Seconds 60
+            $i++
+        }
