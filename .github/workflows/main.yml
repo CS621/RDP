@@ -1,4 +1,4 @@
-name: Windows RDP with System Specs
+name: Windows RDP with Specs (Tailscale)
 
 on:
   workflow_dispatch:
@@ -50,13 +50,22 @@ jobs:
         Write-Host " [OS]        : $os" -ForegroundColor Green
         Write-Host "==================================================" -ForegroundColor Cyan
 
-    - name: Setup Ngrok for RDP Access
+    - name: Connect to Tailscale
       run: |
-        Invoke-WebRequest -Uri "https://bin.equinox.io/c/b4Pvu3rwcdy/ngrok-v3-stable-windows-amd64.zip" -OutFile "ngrok.zip"
-        Expand-Archive -Path "ngrok.zip" -DestinationPath "."
-        # Aapka Ngrok Authtoken yahan daalein ya GitHub Secrets use karein
-        .\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-        Start-Process -FilePath ".\ngrok.exe" -ArgumentList "tcp 3389"
+        echo "Installing Tailscale..."
+        Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
+        Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/quiet" -Wait
+        
+        # Tailscale Auth Key secret se daalein
+        & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-runner-rdp
+
+    - name: Display Tailscale IP
+      run: |
+        $ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+        Write-Host "==================================================" -ForegroundColor Cyan
+        Write-Host " Tailscale IP for RDP : $ip" -ForegroundColor Yellow
+        Write-Host " Connect via RDP to   : $ip:3389" -ForegroundColor Yellow
+        Write-Host "==================================================" -ForegroundColor Cyan
 
     - name: Keep RDP Alive
       run: |
