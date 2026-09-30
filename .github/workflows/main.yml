@@ -19,55 +19,46 @@ jobs:
         net user RunnerAdmin "P@ssword1234!" /add
         net localgroup administrators RunnerAdmin /add
 
-    - name: Fetch and Display System Specifications
+    - name: System Specifications
       run: |
         Write-Host "==================================================" -ForegroundColor Cyan
         Write-Host "            SYSTEM SPECIFICATIONS                 " -ForegroundColor Yellow
         Write-Host "==================================================" -ForegroundColor Cyan
         
-        # CPU Details
         $cpu = Get-CimInstance Win32_Processor
-        $cores = $cpu.NumberOfCores
-        $threads = $cpu.NumberOfLogicalProcessors
-        Write-Host " [CPU]       : $($cpu.Name) ($cores Cores, $threads Threads)" -ForegroundColor Green
+        Write-Host " [CPU]       : $($cpu.Name) ($($cpu.NumberOfCores) Cores, $($cpu.NumberOfLogicalProcessors) Threads)" -ForegroundColor Green
         
-        # RAM Details
         $ram = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
         Write-Host " [RAM]       : $ram GB" -ForegroundColor Green
         
-        # Disk Details (Type, Size, Free Space)
         $disks = Get-PhysicalDisk
         $diskInfo = Get-Volume -DriveLetter C
         $freeSpace = [math]::Round($diskInfo.SizeRemaining / 1GB, 2)
         $totalSize = [math]::Round($diskInfo.Size / 1GB, 2)
-        $mediaType = $disks[0].MediaType
-        $busType = $disks[0].BusType
+        Write-Host " [STORAGE]   : $totalSize GB ($($disks[0].MediaType) / $($disks[0].BusType)) | Free: $freeSpace GB" -ForegroundColor Green
         
-        Write-Host " [STORAGE]   : $totalSize GB ($mediaType / $busType) | Free: $freeSpace GB" -ForegroundColor Green
-        
-        # OS Version
         $os = (Get-CimInstance Win32_OperatingSystem).Caption
         Write-Host " [OS]        : $os" -ForegroundColor Green
         Write-Host "==================================================" -ForegroundColor Cyan
 
-    - name: Connect to Tailscale
+    - name: Install Tailscale
       run: |
-        echo "Installing Tailscale..."
         Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
         Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/quiet" -Wait
-        
-        # Tailscale Auth Key secret se daalein
+
+    - name: Connect Tailscale
+      run: |
         & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-runner-rdp
 
-    - name: Display Tailscale IP
+    - name: Show Connection Info
       run: |
         $ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
         Write-Host "==================================================" -ForegroundColor Cyan
-        Write-Host " Tailscale IP for RDP : $ip" -ForegroundColor Yellow
-        Write-Host " Connect via RDP to   : $ip:3389" -ForegroundColor Yellow
+        Write-Host " Tailscale IP : $ip" -ForegroundColor Yellow
+        Write-Host " Connect RDP  : $ip:3389" -ForegroundColor Yellow
         Write-Host "==================================================" -ForegroundColor Cyan
 
-    - name: Keep RDP Alive
+    - name: Keep Alive
       run: |
         $i = 1
         while ($i -le 360) {
