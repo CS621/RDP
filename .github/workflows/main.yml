@@ -1,48 +1,52 @@
-name: Windows RDP Workflow
+name: Browser-based Windows VPS via noVNC
 
 on:
   workflow_dispatch:
 
 jobs:
-  rdp-build:
+  build:
     runs-on: windows-latest
-
     steps:
-    - name: Enable Remote Desktop
-      run: |
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+      - name: Install Tools & VNC Server
+        run: |
+          # Chocolatey se TightVNC server aur git/python install karo
+          choco install tightvnc python git -y
+          refreshenv
 
-    - name: Create Custom RDP User
-      run: |
-        $user = "MyRDPUser"
-        $pass = "P@ssword1234!"
-        
-        # Naya user create karna aur admin group mein dalna
-        net user $user $pass /add
-        net localgroup administrators $user /add
+      - name: Configure and Start TightVNC Server
+        run: |
+          # VNC Registry mein password set karne ke liye (Password: password123)
+          New-Item -Path "HKCU:\Software\TightVNC\Server" -Force
+          Set-ItemProperty -Path "HKCU:\Software\TightVNC\Server" -Name "Password" -Value ([byte[]](0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08))
+          
+          # TightVNC background mein start karo
+          Start-Process "C:\Program Files\TightVNC\tvnserver.exe" -ArgumentList "-controlservice"
+          Start-Process "C:\Program Files\TightVNC\tvnserver.exe" -ArgumentList "-run"
 
-    - name: Install and Setup Tailscale
-      run: |
-        Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
-        Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/quiet" -Wait
-        & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=github-rdp-node
+      - name: Setup noVNC (Web Browser Client)
+        run: |
+          # noVNC repo clone karo taaki browser UI mil sake
+          git clone https://github.com/novnc/noVNC.git C:\noVNC
+          
+          # Websockify install karo jo VNC stream ko WebSocket mein convert karega
+          pip install numpy websockify
 
-    - name: Get RDP Connection IP
-      run: |
-        $ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
-        Write-Host "==================================================" -ForegroundColor Cyan
-        Write-Host " Tailscale IP Address : $ip" -ForegroundColor Yellow
-        Write-Host " Connect using RDP to : $ip:3389" -ForegroundColor Yellow
-        Write-Host " Username             : MyRDPUser" -ForegroundColor Yellow
-        Write-Host " Password             : P@ssword1234!" -ForegroundColor Yellow
-        Write-Host "==================================================" -ForegroundColor Cyan
+      - name: Start noVNC Web Server & Websockify
+        run: |
+          # Background mein websockify run karo (Port 6080 -> VNC Port 5900)
+          Start-Job -ScriptBlock {
+              python C:\noVNC\utils\launch.py --vnc localhost:5900 --listen 6080
+          }
 
-    - name: Keep Workflow Alive
-      run: |
-        $i = 1
-        while ($i -le 360) {
-            Start-Sleep -Seconds 60
-            $i++
-        }
+      - name: Install Bore CLI & Expose Browser Link
+        run: |
+          # Bore download karo taaki public URL mil sake
+          Invoke-WebRequest -Uri "https://github.com/ekzhang/bore/releases/download/v0.4.1/bore-v0.4.1-x86_64-pc-windows-msvc.zip" -OutFile "bore.zip"
+          Expand-Archive -Path "bore.zip" -DestinationPath "C:\tools"
+          
+          Start-Sleep -Seconds 5
+          Write-Host "=== STARTING BORE TUNNEL ==="
+          C:\tools\bore.exe local 6080 --to bore.pub
+
+      - name: Keep Alive (6 Hours Max)
+        run: Start-Sleep -Seconds 21600
